@@ -39,6 +39,9 @@ def convert_to_sparse(data):
 
     csr = sparse.csr_matrix((value, (row, column)))
     print(type(csr))
+ 
+    print(csr[22,:].indices)
+    print(csr[22,:])
 
     # print(csr[0 , :]) 
     # the form is the ( user_id , movie_id ) and can something from the a user can be accesed with  print(csr[1, :]) # to acces the movies rater by the first person
@@ -48,10 +51,41 @@ def convert_to_sparse(data):
 
 
 def minhash(csr, n, seed):
+    """
+    
+    return it in matrix form
+    a column = 1 user_id 
+    a row = 1 iteration of minihash (represented by n, where n should be bigger than 0)
+    """
+
     rng = np.random.default_rng(seed)
 
+    minhash_matrix =  np.full((n, csr.shape[1]), -1) # -1 isnt an index
+
     for i in range(n):
-        permutation = rng.permutation(np.arange(csr.shape[0]))
+        remaining = minhash_matrix.shape[1]
+        current_iter = 0
+        permutation = rng.permutation(csr.shape[0]) # get a random permutation of size: amount of movies
+        while remaining > 0:
+            current_idx = permutation[current_iter] # get the idx of the permutation
+            csr_idxes = csr[current_idx , :].indices
+            for idx in csr_idxes:
+                if minhash_matrix[i , idx] == -1:
+                    minhash_matrix[i , idx] = current_idx
+                    remaining -= 1
+                    
+            current_iter += 1
+
+    return minhash_matrix
+
+
+def LSC(signatures):
+
+
+
+
+
+
     
 
 
@@ -61,7 +95,8 @@ def minhash(csr, n, seed):
 def main():
     seed = 3
     data = loading_data("Data/user_movie_rating.npy")
-    convert_to_sparse(data)
+    sparse_data = convert_to_sparse(data)
+    minhash_matrix = minhash(sparse_data, 125, seed)
     pass
 
 
