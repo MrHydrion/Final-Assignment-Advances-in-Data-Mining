@@ -52,6 +52,7 @@ def convert_to_sparse(data):
 
 def minhash(csr, n, seed):
     """
+    n = the number of rows and signatures
     
     return it in matrix form
     a column = 1 user_id 
@@ -66,20 +67,25 @@ def minhash(csr, n, seed):
         remaining = minhash_matrix.shape[1]
         current_iter = 0
         permutation = rng.permutation(csr.shape[0]) # get a random permutation of size: amount of movies
-        while remaining > 0:
+        while remaining > 0 and current_iter < len(permutation):
             current_idx = permutation[current_iter] # get the idx of the permutation
             csr_idxes = csr[current_idx , :].indices
-            for idx in csr_idxes:
-                if minhash_matrix[i , idx] == -1:
-                    minhash_matrix[i , idx] = current_idx
-                    remaining -= 1
+            unassigned = csr_idxes[minhash_matrix[i, csr_idxes] == -1]
+            minhash_matrix[i, unassigned] = current_idx
+            remaining -= len(unassigned)
                     
             current_iter += 1
 
     return minhash_matrix
 
 
-def LSC(signatures):
+def LSC(signatures, b, r):
+    """
+    b = bands
+    r = rows
+    
+    """
+    
 
 
 
