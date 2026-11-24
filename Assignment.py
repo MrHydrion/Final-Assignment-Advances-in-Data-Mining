@@ -1,9 +1,20 @@
+import argparse
 import sys
 import random
 import numpy as np
 from scipy import sparse
 from collections import defaultdict
 from itertools import combinations
+import psutil
+import time
+import os
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("seed", type=int, nargs="?", default=3, help="Random seed (default: 3)")
+    parser.add_argument("-o", "--output", type=str, default="result.txt", help="Location output file (default: result.txt)")
+    return parser.parse_args()
 
 def loading_data(data_file):
     """
@@ -13,7 +24,7 @@ def loading_data(data_file):
     3) rating
     
     """
-    data = np.load(data_file)
+    data = np.load(data_file).astype(np.int32, copy=False)
     print(f" maximum movie ID {max(data[: , 1])}")
     # print(data)
     return data
@@ -33,17 +44,17 @@ def convert_to_sparse(data):
     # remove the last column
     data_usefull = np.delete(data, 2, 1)
     # -1 so we have 0 -> id 0
-    row = data_usefull[:, 1] - 1 
-    column = data_usefull[:, 0] - 1 
+    row = (data_usefull[:, 1] - 1).astype(np.int32, copy=False)
+    column = (data_usefull[:, 0] - 1).astype(np.int32, copy=False)
 
     # data needs to be fully 1
-    value = np.ones(len(row))
+    value = np.ones(len(row), dtype=np.float32)
 
-    csr = sparse.csr_matrix((value, (row, column)))
-    print(type(csr))
+    csr = sparse.csr_matrix((value, (row, column)), dtype=np.float32)
+    # print(type(csr))
  
-    print(csr[22,:].indices)
-    print(csr[22,:])
+    # print(csr[22,:].indices)
+    # print(csr[22,:])
 
     # print(csr[0 , :]) 
     # the form is the ( user_id , movie_id ) and can something from the a user can be accesed with  print(csr[1, :]) # to acces the movies rater by the first person
@@ -63,19 +74,20 @@ def minhash(csr, n, seed):
 
     rng = np.random.default_rng(seed)
 
-    minhash_matrix =  np.full((n, csr.shape[1]), -1) # -1 isnt an index
+    minhash_matrix =  np.full((n, csr.shape[1]), -1, dtype=np.int32) # -1 isnt an index
 
     for i in range(n):
         remaining = minhash_matrix.shape[1]
         current_iter = 0
-        permutation = rng.permutation(csr.shape[0]) # get a random permutation of size: amount of movies
+        permutation = rng.permutation(csr.shape[0]).astype(np.int32, copy=False) # get a random permutation of size: amount of movies
         while remaining > 0 and current_iter < len(permutation):
             current_idx = permutation[current_iter] # get the idx of the permutation
-            csr_idxes = csr[current_idx , :].indices
-            unassigned = csr_idxes[minhash_matrix[i, csr_idxes] == -1]
-            minhash_matrix[i, unassigned] = current_idx
-            remaining -= len(unassigned)
-                    
+            csr_idxes = csr.indices[csr.indptr[current_idx] : csr.indptr[current_idx + 1]]
+            if csr_idxes.size > 0:
+                unassigned = csr_idxes[minhash_matrix[i, csr_idxes] == -1]
+                if unassigned.size > 0:
+                    minhash_matrix[i, unassigned] = current_idx
+                    remaining -= unassigned.size
             current_iter += 1
 
     return minhash_matrix
@@ -145,21 +157,59 @@ def verify_and_save(sparse_csr, candidates, output_file="result.txt"):
 
 
 def main():
-    seed = 3
+    total_start = time.perf_counter()
+    peak_ram_mb = 0
+
+    args = parse_args()
+    seed = args.seed
+    t0 = time.perf_counter()
     data = loading_data("Data/user_movie_rating.npy")
+    elapsed_time = time.perf_counter() - t0
+    current_ram = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2) # RAM in MB
+    peak_ram_mb = max(peak_ram_mb, current_ram)
+    print(f"[Load data] Time: {elapsed_time:.2f}s | Current RAM: {current_ram:.1f} MB | Peak RAM: {peak_ram_mb:.1f} MB")
+
+    t0 = time.perf_counter()
     sparse_data = convert_to_sparse(data)
+    elapsed_time = time.perf_counter() - t0
+    current_ram = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2) # RAM in MB
+    peak_ram_mb = max(peak_ram_mb, current_ram)
+    print(f"[Convert to sparse] Time: {elapsed_time:.2f}s | Current RAM: {current_ram:.1f} MB | Peak RAM: {peak_ram_mb:.1f} MB")
     del data # free ram
 
-    n = 125
+    t0 = time.perf_counter()
+    n = 150 # 125
     minhash_matrix = minhash(sparse_data, n, seed)
+    elapsed_time = time.perf_counter() - t0
+    current_ram = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2) # RAM in MB
+    peak_ram_mb = max(peak_ram_mb, current_ram)
+    print(f"[Minhash] Time: {elapsed_time:.2f}s | Current RAM: {current_ram:.1f} MB | Peak RAM: {peak_ram_mb:.1f} MB")
 
-    b = 25
-    r = 5
+
+    t0 = time.perf_counter()
+    b = 30 # 25
+    r = 5 # 5
     # 5 * 25 = 125 (n)
     candidates = LSH(minhash_matrix, b, r)
-    print(len(candidates))
-    found = verify_and_save(sparse_data, candidates)
-    print(found)
+    print(f"Candidates: {len(candidates)}")
+    elapsed_time = time.perf_counter() - t0
+    current_ram = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2) # RAM in MB
+    peak_ram_mb = max(peak_ram_mb, current_ram)
+    print(f"[LSH] Time: {elapsed_time:.2f}s | Current RAM: {current_ram:.1f} MB | Peak RAM: {peak_ram_mb:.1f} MB")
+
+
+    t0 = time.perf_counter()
+    found = verify_and_save(sparse_data, candidates, output_file=args.output)
+    print(f"Verified pairs: {found}")
+    elapsed_time = time.perf_counter() - t0
+    current_ram = psutil.Process(os.getpid()).memory_info().rss / (1024 ** 2) # RAM in MB
+    peak_ram_mb = max(peak_ram_mb, current_ram)
+    print(f"[Verify & save] Time: {elapsed_time:.2f}s | Current RAM: {current_ram:.1f} MB | Peak RAM: {peak_ram_mb:.1f} MB")
+
+
+    total_time = time.perf_counter() - total_start
+    print(f"\nTotal runtime: {total_time:.2f}s ({total_time / 60:.2f} min)")
+    print(f"Observed peak RAM: {peak_ram_mb:.1f} MB ({peak_ram_mb / 1024:.2f} GB)")
 
 
 if __name__ == "__main__":
