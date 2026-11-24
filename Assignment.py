@@ -2,6 +2,8 @@ import sys
 import random
 import numpy as np
 from scipy import sparse
+from collections import defaultdict
+from itertools import combinations
 
 def loading_data(data_file):
     """
@@ -79,31 +81,85 @@ def minhash(csr, n, seed):
     return minhash_matrix
 
 
-def LSC(signatures, b, r):
+def LSH(signatures, b, r):
     """
     b = bands
     r = rows
-    
+
+    return pair candidates as a set
     """
-    
+
+    candidates = set()
+    num_users = signatures.shape[1]
+
+    for band in range(b):
+        # extract the band from the signatures
+        start = band * r
+        end = start + r
+        band_slice = signatures[start:end, :]
+
+        buckets = defaultdict(list)
+        for user_id in range(num_users):
+            # hash the band into a bucket
+            bucket_key = band_slice[:, user_id].tobytes()
+            buckets[bucket_key].append(user_id)
+
+        for users in buckets.values():
+            # skip large buckets (>100) to avoid bottlenecks (hint 4)
+            if 1 < len(users) <= 100:
+                # take all combinations of users from this band and add to the candidates
+                for u1, u2 in combinations(users, 2):
+                    candidates.add((u1, u2) if u1 < u2 else (u2, u1))
+
+    return candidates
 
 
+def verify_and_save(sparse_csr, candidates, output_file="result.txt"):
+    """
+    writes the candidates that have a Jaccard Similarity higher than 0.5 to the output file
+    """
+    threshold = 0.5
+    # convert to CSC
+    csc = sparse_csr.tocsc()
 
+    # clear output file
+    open(output_file, "w").close()
 
+    found_count = 0
+    for u1, u2 in candidates:
+        movies_1 = csc.indices[csc.indptr[u1]: csc.indptr[u1 + 1]]
+        movies_2 = csc.indices[csc.indptr[u2]: csc.indptr[u2 + 1]]
 
+        # find the ratio of the intersection (shared movies) and union (combined movies) (Jaccard Similarity)
+        intersection = len(np.intersect1d(movies_1, movies_2, assume_unique=True))
+        union = len(movies_1) + len(movies_2) - intersection
 
-    
+        # save if similarity is over 0.5
+        if union > 0 and (intersection / union) > threshold:
+            found_count += 1
+            # open and close file for every pair (hint 6)
+            with open(output_file, "a") as f:
+                f.write(f"{u1 + 1},{u2 + 1}\n")
 
-
-
+    return found_count
 
 
 def main():
     seed = 3
     data = loading_data("Data/user_movie_rating.npy")
     sparse_data = convert_to_sparse(data)
-    minhash_matrix = minhash(sparse_data, 125, seed)
-    pass
+    del data # free ram
+
+    n = 125
+    minhash_matrix = minhash(sparse_data, n, seed)
+
+    b = 25
+    r = 5
+    # 5 * 25 = 125 (n)
+    candidates = LSH(minhash_matrix, b, r)
+    print(len(candidates))
+    found = verify_and_save(sparse_data, candidates)
+    print(found)
 
 
 if __name__ == "__main__":
