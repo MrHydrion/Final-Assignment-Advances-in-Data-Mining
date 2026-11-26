@@ -9,7 +9,7 @@ RESULTS_DIR = Path('eval_results')
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    for seed in range(1, 2):
+    for seed in range(1, 11):
         out_path = RESULTS_DIR / f"seed_{seed}.txt"
         print(f"\n=== Running seed: {seed} ===")
         subprocess.run(

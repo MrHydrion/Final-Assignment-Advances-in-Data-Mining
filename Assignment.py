@@ -27,7 +27,6 @@ def loading_data(data_file):
     """
     data = np.load(data_file).astype(np.int32, copy=False)
     print(f" maximum movie ID {max(data[: , 1])}")
-    # print(data)
     return data
 
 def convert_to_sparse(data):
